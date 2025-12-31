@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { WebcamCapture } from '@/components/WebcamCapture';
 import { BiometricType } from '@/types/auth';
 import { 
   Fingerprint, 
@@ -74,12 +75,60 @@ export function BiometricEnrollment({ onBack }: BiometricEnrollmentProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [enrollmentComplete, setEnrollmentComplete] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
 
   const startEnrollment = (type: BiometricType) => {
     setSelectedType(type);
     setCurrentStep(0);
+    
+    // For face recognition, show camera immediately
+    if (type === 'face') {
+      setShowCamera(true);
+      setIsEnrolling(false); // Don't set enrolling yet, wait for camera capture
+    } else {
+      // For other biometrics, use the old flow
+      setIsEnrolling(true);
+      processStep(type, 0);
+    }
+  };
+
+  const handleFaceCapture = async (base64Image: string) => {
+    setShowCamera(false);
     setIsEnrolling(true);
-    processStep(type, 0);
+    
+    console.log('Face capture received, image length:', base64Image.length);
+    console.log('User:', user);
+    
+    try {
+      if (user) {
+        console.log('Calling enrollBiometric with user id:', user.id);
+        const success = await enrollBiometric(user.id, 'face', base64Image);
+        console.log('enrollBiometric result:', success);
+        
+        if (success) {
+          setEnrollmentComplete(true);
+          toast.success('Face recognition enrolled successfully!');
+        } else {
+          toast.error('Face enrollment failed. Please try again.');
+          setIsEnrolling(false);
+          setSelectedType(null);
+        }
+      } else {
+        console.error('No user found');
+        toast.error('User session not found. Please login again.');
+        setIsEnrolling(false);
+        setSelectedType(null);
+      }
+    } catch (error) {
+      console.error('Face enrollment error:', error);
+      if (error instanceof Error) {
+        toast.error(`Face enrollment failed: ${error.message}`);
+      } else {
+        toast.error('Face enrollment failed. Please try again.');
+      }
+      setIsEnrolling(false);
+      setSelectedType(null);
+    }
   };
 
   const processStep = async (type: BiometricType, step: number) => {
@@ -190,22 +239,35 @@ export function BiometricEnrollment({ onBack }: BiometricEnrollmentProps) {
   }
 
   return (
-    <div className="bg-card border border-border rounded-lg p-8">
-      <div className="flex items-center gap-3 mb-6">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <h3 className="text-xl font-bold">Biometric Enrollment</h3>
-      </div>
+    <>
+      {showCamera && (
+        <WebcamCapture
+          onCapture={handleFaceCapture}
+          onCancel={() => {
+            setShowCamera(false);
+            setSelectedType(null);
+            setIsEnrolling(false);
+          }}
+          isEnrollment={true}
+        />
+      )}
+      
+      <div className="bg-card border border-border rounded-lg p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <Button variant="ghost" size="icon" onClick={onBack}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <h3 className="text-xl font-bold">Biometric Enrollment</h3>
+        </div>
 
-      <p className="text-muted-foreground mb-6">
-        Select a biometric method to enroll. Each enrollment captures multiple samples
-        for improved accuracy.
-      </p>
+        <p className="text-muted-foreground mb-6">
+          Select a biometric method to enroll. Each enrollment captures multiple samples
+          for improved accuracy.
+        </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {(Object.entries(biometricConfig) as [BiometricType, typeof biometricConfig.face][]).map(([type, config]) => {
-          const Icon = config.icon;
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {(Object.entries(biometricConfig) as [BiometricType, typeof biometricConfig.face][]).map(([type, config]) => {
+            const Icon = config.icon;
           const isEnrolled = user?.biometrics[type];
 
           return (
@@ -238,5 +300,6 @@ export function BiometricEnrollment({ onBack }: BiometricEnrollmentProps) {
         })}
       </div>
     </div>
+    </>
   );
 }

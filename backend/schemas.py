@@ -43,6 +43,7 @@ class BiometricEnroll(BaseModel):
 
 class BiometricVerify(BaseModel):
     biometric_type: Literal["face", "fingerprint", "voice"]
+    verification_data: Optional[str] = None  # Base64 image for face, other data for fingerprint/voice
 
 class BiometricToggle(BaseModel):
     biometric_type: Literal["face", "fingerprint", "voice"]

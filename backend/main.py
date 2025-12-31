@@ -14,9 +14,10 @@ from schemas import (
 )
 from auth import (
     verify_password, get_password_hash, create_access_token,
-    get_current_active_user, get_current_admin_user,
+    get_current_user, get_current_active_user, get_current_admin_user,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
+import face_recognition_service as face_service
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -143,8 +144,27 @@ async def enroll_biometric(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    # Simulate enrollment delay
-    await asyncio.sleep(3)
+    # For face recognition, process the image
+    if biometric_data.biometric_type == "face":
+        if not biometric_data.enrollment_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Face image data is required for face recognition enrollment"
+            )
+        
+        try:
+            # Extract and encrypt face encoding
+            encrypted_encoding = face_service.enroll_face(biometric_data.enrollment_data)
+            enrollment_data = encrypted_encoding
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    else:
+        # For fingerprint and voice (mock for now)
+        await asyncio.sleep(3)
+        enrollment_data = biometric_data.enrollment_data or f"mock_{biometric_data.biometric_type}_data"
     
     # Check if biometric already exists
     existing = db.query(BiometricData).filter(
@@ -154,13 +174,13 @@ async def enroll_biometric(
     
     if existing:
         existing.is_enrolled = True
-        existing.enrollment_data = biometric_data.enrollment_data or f"mock_{biometric_data.biometric_type}_data"
+        existing.enrollment_data = enrollment_data
     else:
         new_biometric = BiometricData(
             user_id=current_user.id,
             biometric_type=biometric_data.biometric_type,
             is_enrolled=True,
-            enrollment_data=biometric_data.enrollment_data or f"mock_{biometric_data.biometric_type}_data"
+            enrollment_data=enrollment_data
         )
         db.add(new_biometric)
     
@@ -174,12 +194,9 @@ async def enroll_biometric(
 @app.post("/biometric/verify", response_model=BiometricResponse)
 async def verify_biometric(
     biometric_verify: BiometricVerify,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Simulate verification delay
-    await asyncio.sleep(2)
-    
     # Check if biometric is enrolled
     biometric = db.query(BiometricData).filter(
         BiometricData.user_id == current_user.id,
@@ -192,11 +209,44 @@ async def verify_biometric(
             message=f"{biometric_verify.biometric_type.capitalize()} biometric not enrolled"
         )
     
-    # Mock verification - always succeed for enrolled biometrics
-    return BiometricResponse(
-        success=True,
-        message=f"{biometric_verify.biometric_type.capitalize()} verification successful"
-    )
+    # For face recognition, verify the image
+    if biometric_verify.biometric_type == "face":
+        if not biometric_verify.verification_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Face image data is required for verification"
+            )
+        
+        try:
+            # Verify face against stored encrypted encoding
+            result = face_service.verify_face(
+                biometric_verify.verification_data,
+                biometric.enrollment_data
+            )
+            
+            if result["success"]:
+                return BiometricResponse(
+                    success=True,
+                    message=f"Face verification successful (confidence: {result['confidence']:.1f}%)"
+                )
+            else:
+                return BiometricResponse(
+                    success=False,
+                    message=f"Face verification failed (confidence: {result['confidence']:.1f}%)"
+                )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    else:
+        # For fingerprint and voice (mock for now)
+        await asyncio.sleep(2)
+        return BiometricResponse(
+            success=True,
+            message=f"{biometric_verify.biometric_type.capitalize()} verification successful"
+        )
+
 
 @app.put("/biometric/toggle", response_model=BiometricResponse)
 async def toggle_biometric(
@@ -210,12 +260,10 @@ async def toggle_biometric(
     ).first()
     
     if not biometric:
-        if biometric_toggle.enabled:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot enable biometric that is not enrolled"
-            )
-        return BiometricResponse(success=True, message="Biometric already disabled")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{biometric_toggle.biometric_type.capitalize()} biometric not found"
+        )
     
     biometric.is_enrolled = biometric_toggle.enabled
     db.commit()
@@ -225,6 +273,28 @@ async def toggle_biometric(
         success=True,
         message=f"{biometric_toggle.biometric_type.capitalize()} biometric {action}"
     )
+
+@app.post("/biometric/detect-face")
+async def detect_face(
+    data: dict,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Detect if there's a face in the image (for preview/validation)"""
+    if "image" not in data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image data is required"
+        )
+    
+    try:
+        result = face_service.detect_face_in_image(data["image"])
+        return result
+    except Exception as e:
+        return {
+            "face_detected": False,
+            "face_count": 0,
+            "message": f"Error: {str(e)}"
+        }
 
 # ============= COMMAND ENDPOINTS =============
 

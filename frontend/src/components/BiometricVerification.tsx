@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { WebcamCapture } from '@/components/WebcamCapture';
 import { BiometricType } from '@/types/auth';
 import { Fingerprint, ScanFace, Mic, CheckCircle2, XCircle, Shield } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ export function BiometricVerification() {
   const [selectedType, setSelectedType] = useState<BiometricType | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<'idle' | 'scanning' | 'success' | 'failed'>('idle');
+  const [showCamera, setShowCamera] = useState(false);
 
   const availableBiometrics = user?.biometrics 
     ? (Object.entries(user.biometrics) as [BiometricType, boolean][])
@@ -37,19 +39,49 @@ export function BiometricVerification() {
 
   const handleVerify = async (type: BiometricType) => {
     setSelectedType(type);
+    
+    // For face recognition, show camera
+    if (type === 'face') {
+      setShowCamera(true);
+    } else {
+      // For other biometrics, use the old flow
+      setIsVerifying(true);
+      setVerificationStatus('scanning');
+
+      try {
+        const success = await verifyBiometric(type);
+        if (success) {
+          setVerificationStatus('success');
+          toast.success('Biometric verification successful!');
+        } else {
+          setVerificationStatus('failed');
+          toast.error('Biometric verification failed. Please try again.');
+        }
+      } catch {
+        setVerificationStatus('failed');
+        toast.error('An error occurred during verification.');
+      } finally {
+        setIsVerifying(false);
+      }
+    }
+  };
+
+  const handleFaceCapture = async (base64Image: string) => {
+    setShowCamera(false);
     setIsVerifying(true);
     setVerificationStatus('scanning');
 
     try {
-      const success = await verifyBiometric(type);
+      const success = await verifyBiometric('face', base64Image);
       if (success) {
         setVerificationStatus('success');
-        toast.success('Biometric verification successful!');
+        toast.success('Face verification successful!');
       } else {
         setVerificationStatus('failed');
-        toast.error('Biometric verification failed. Please try again.');
+        toast.error('Face verification failed. Please try again.');
       }
-    } catch {
+    } catch (error) {
+      console.error('Face verification error:', error);
       setVerificationStatus('failed');
       toast.error('An error occurred during verification.');
     } finally {
@@ -63,20 +95,33 @@ export function BiometricVerification() {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto">
-      <div className="bg-card border border-border rounded-lg p-8 relative overflow-hidden">
-        <div className="absolute inset-0 scan-line pointer-events-none" />
+    <>
+      {showCamera && (
+        <WebcamCapture
+          onCapture={handleFaceCapture}
+          onCancel={() => {
+            setShowCamera(false);
+            setSelectedType(null);
+            setVerificationStatus('idle');
+          }}
+          isEnrollment={false}
+        />
+      )}
+      
+      <div className="w-full max-w-md mx-auto">
+        <div className="bg-card border border-border rounded-lg p-8 relative overflow-hidden">
+          <div className="absolute inset-0 scan-line pointer-events-none" />
 
-        <div className="relative z-10">
-          <div className="flex items-center justify-center mb-6">
-            <div className="w-16 h-16 bg-accent/20 rounded-full flex items-center justify-center border border-accent/50">
-              <Shield className="w-8 h-8 text-accent" />
+          <div className="relative z-10">
+            <div className="flex items-center justify-center mb-6">
+              <div className="w-16 h-16 bg-accent/20 rounded-full flex items-center justify-center border border-accent/50">
+                <Shield className="w-8 h-8 text-accent" />
+              </div>
             </div>
-          </div>
 
-          <h2 className="text-2xl font-bold text-center text-foreground mb-2">
-            Biometric Verification
-          </h2>
+            <h2 className="text-2xl font-bold text-center text-foreground mb-2">
+              Biometric Verification
+            </h2>
           <p className="text-muted-foreground text-center text-sm mb-8 font-mono">
             STEP 2: SELECT BIOMETRIC METHOD
           </p>
@@ -169,5 +214,6 @@ export function BiometricVerification() {
         </div>
       </div>
     </div>
+    </>
   );
 }

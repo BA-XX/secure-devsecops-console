@@ -4,9 +4,9 @@ import { authAPI, biometricAPI } from '@/lib/api';
 
 interface AuthContextType extends AuthState {
   login: (username: string, password: string) => Promise<boolean>;
-  verifyBiometric: (type: BiometricType) => Promise<boolean>;
+  verifyBiometric: (type: BiometricType, verificationData?: string) => Promise<boolean>;
   logout: () => void;
-  enrollBiometric: (userId: string, type: BiometricType) => Promise<boolean>;
+  enrollBiometric: (userId: string, type: BiometricType, enrollmentData?: string) => Promise<boolean>;
   updateUserBiometric: (userId: string, type: BiometricType, enabled: boolean) => void;
   loadUser: () => Promise<void>;
 }
@@ -76,9 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const verifyBiometric = async (type: BiometricType): Promise<boolean> => {
+  const verifyBiometric = async (type: BiometricType, verificationData?: string): Promise<boolean> => {
     try {
-      const result = await biometricAPI.verify(type);
+      const result = await biometricAPI.verify(type, verificationData);
       
       if (result.success) {
         setAuthState(prev => ({
@@ -107,9 +107,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const enrollBiometric = async (userId: string, type: BiometricType): Promise<boolean> => {
+  const enrollBiometric = async (userId: string, type: BiometricType, enrollmentData?: string): Promise<boolean> => {
     try {
-      const result = await biometricAPI.enroll(type);
+      console.log('enrollBiometric called:', { userId, type, hasData: !!enrollmentData });
+      const result = await biometricAPI.enroll(type, enrollmentData);
+      console.log('Biometric API result:', result);
       
       if (result.success && authState.user?.id === userId) {
         setAuthState(prev => ({
@@ -127,6 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     } catch (error) {
       console.error('Biometric enrollment failed:', error);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message);
+      }
       return false;
     }
   };

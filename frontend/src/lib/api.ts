@@ -61,16 +61,27 @@ export const authAPI = {
 // Biometric API
 export const biometricAPI = {
   async enroll(biometricType: BiometricType, enrollmentData?: string) {
-    const response = await api.post('/biometric/enroll', {
+    console.log('API enroll called:', { biometricType, hasData: !!enrollmentData, dataLength: enrollmentData?.length });
+    const payload = {
       biometric_type: biometricType,
       enrollment_data: enrollmentData,
-    });
-    return response.data;
+    };
+    console.log('Sending payload:', { ...payload, enrollment_data: enrollmentData ? `${enrollmentData.substring(0, 50)}...` : null });
+    
+    try {
+      const response = await api.post('/biometric/enroll', payload);
+      console.log('API enroll response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('API enroll error:', error);
+      throw error;
+    }
   },
 
-  async verify(biometricType: BiometricType) {
+  async verify(biometricType: BiometricType, verificationData?: string) {
     const response = await api.post('/biometric/verify', {
       biometric_type: biometricType,
+      verification_data: verificationData,
     });
     return response.data;
   },
@@ -79,6 +90,13 @@ export const biometricAPI = {
     const response = await api.put('/biometric/toggle', {
       biometric_type: biometricType,
       enabled,
+    });
+    return response.data;
+  },
+
+  async detectFace(imageData: string) {
+    const response = await api.post('/biometric/detect-face', {
+      image: imageData,
     });
     return response.data;
   },
