@@ -18,6 +18,7 @@ from auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
 import face_recognition_service as face_service
+import voice_recognition_service as voice_service
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -161,8 +162,25 @@ async def enroll_biometric(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e)
             )
+    elif biometric_data.biometric_type == "voice":
+        # Voice recognition enrollment
+        if not biometric_data.enrollment_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Voice audio data is required for voice recognition enrollment"
+            )
+        
+        try:
+            # Extract and encrypt voice features
+            encrypted_features = voice_service.enroll_voice(biometric_data.enrollment_data)
+            enrollment_data = encrypted_features
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
     else:
-        # For fingerprint and voice (mock for now)
+        # For fingerprint (mock for now)
         await asyncio.sleep(3)
         enrollment_data = biometric_data.enrollment_data or f"mock_{biometric_data.biometric_type}_data"
     
@@ -239,8 +257,38 @@ async def verify_biometric(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e)
             )
+    elif biometric_verify.biometric_type == "voice":
+        # Voice recognition verification
+        if not biometric_verify.verification_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Voice audio data is required for verification"
+            )
+        
+        try:
+            # Verify voice against stored encrypted features
+            result = voice_service.verify_voice(
+                biometric_verify.verification_data,
+                biometric.enrollment_data
+            )
+            
+            if result["success"]:
+                return BiometricResponse(
+                    success=True,
+                    message=f"Voice verification successful (confidence: {result['confidence']:.1f}%)"
+                )
+            else:
+                return BiometricResponse(
+                    success=False,
+                    message=f"Voice verification failed (confidence: {result['confidence']:.1f}%)"
+                )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
     else:
-        # For fingerprint and voice (mock for now)
+        # For fingerprint (mock for now)
         await asyncio.sleep(2)
         return BiometricResponse(
             success=True,
@@ -293,6 +341,27 @@ async def detect_face(
         return {
             "face_detected": False,
             "face_count": 0,
+            "message": f"Error: {str(e)}"
+        }
+
+@app.post("/biometric/detect-voice")
+async def detect_voice(
+    data: dict,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Detect if there's voice in the audio (for preview/validation)"""
+    if "audio" not in data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio data is required"
+        )
+    
+    try:
+        result = voice_service.detect_voice_in_audio(data["audio"])
+        return result
+    except Exception as e:
+        return {
+            "voice_detected": False,
             "message": f"Error: {str(e)}"
         }
 
